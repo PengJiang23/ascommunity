@@ -13,17 +13,22 @@ async function drawTemporalMatrix() {
 
     const formattedData = formatCsvData(matrix_csv);
     const formattedSize = formatCsvData(size_csv);
+    const formattedInfluence = formatCsvData(influence_csv);
 
     let {width, height} = getLayerWidthHeight(undefined, '.temporal-matrix');
 
+
+
+
     let layer = SVG(document.querySelector('.temporal-matrix'))
+    // let layer = SVG(document.querySelector('.svg-matrix'))
     let gridLayer = layer.group().addClass('grid-layer').transform({translate: [width / 4, height / 8]});
     let eventLayer = layer.group().addClass('event-layer').transform({translate: [width / 4, height / 8]});
     let circleLayer = layer.group().addClass('circle-layer').transform({translate: [width / 4, height / 8]});
 
 
     // 根据要求调整网格大小为50
-    const gridSize = 50;
+    const gridSize = 45;
     // 调整偏移量以适应更大的网格
     const offsetX = 130;
     const offsetY = 80;
@@ -34,7 +39,7 @@ async function drawTemporalMatrix() {
     drawGrid(gridLayer, formattedData, gridSize, offsetX, offsetY);
 
     // 绘制圆圈并绑定事件
-    const circleData = drawCircles(circleLayer, formattedData, formattedSize, gridSize, offsetX, offsetY);
+    const circleData = drawCircles(circleLayer, formattedData, formattedSize, formattedInfluence, gridSize, offsetX, offsetY);
 
     // 绘制事件连接线和三角形
     drawEvents(eventLayer, formattedData, formattedSize, circleData, gridSize, offsetX, offsetY);
@@ -43,15 +48,15 @@ async function drawTemporalMatrix() {
     const extraEvents = [
         ['C1-3-4', 'C2-3-4', -1],
         ['C9-1-3', 'C10-2-35', 0],
-        ['C10-4-2', 'C10-5-7', 0],
+        // ['C10-4-2', 'C10-5-7', 0],
         ['C9-4-1','C10-5-7',  1],
-        ['C10-9-6', 'C9-10-2', 1],
-        ['C10-9-6', 'C10-10-32', 1],
+        ['C10-9-6', 'C9-10-2', 0],
+        // ['C10-9-6', 'C10-10-32', 1],
         ['C12-5-15', 'C10-6-7', 1],
         ['C11-4-6', 'C12-5-15', 1],
         ['C13-4-2', 'C12-5-15', 1],
         ['C14-7-26', 'C15-8-21', 1],
-        ['C15-8-21', 'C16-9-7', 1],
+        ['C15-8-21', 'C16-9-7', 0],
         ['C5-9-20', 'C6-10-1', 1],
         ['C6-9-16', 'C6-10-1', 1],
         ['C7-9-17', 'C6-10-1', 1],
@@ -102,20 +107,20 @@ function drawGrid(draw, csvData, gridSize, offsetX, offsetY) {
     rowTitle.center(rowTitleX, rowTitleY)
         .rotate(-90)// 逆时针旋转90度
 
-    // // 添加列标题 - TimeSlice
-    // const colTitle = draw.text("TimeSlice")
-    //     .font({
-    //         family: 'Arial, sans-serif',
-    //         size: 18, // 较大字体
-    //         weight: 'bold',
-    //         anchor: 'middle',
-    //         fill: '#2c3e50' // 深色调
-    //     });
-    //
-    // // 计算列标题位置 - 在列标签的上方居中
-    // const colTitleX = offsetX + (cols * gridSize) / 2;
-    // const colTitleY = offsetY - 50;
-    // colTitle.center(colTitleX, colTitleY - 30);
+    // 添加列标题 - TimeSlice
+    const colTitle = draw.text("Time Snapshots")
+        .font({
+            family: 'Arial, sans-serif',
+            size: 18, // 较大字体
+            weight: 'bold',
+            anchor: 'middle',
+            fill: '#2c3e50' // 深色调
+        });
+
+    // 计算列标题位置 - 在列标签的上方居中
+    const colTitleX = offsetX + (cols * gridSize) / 2;
+    const colTitleY = offsetY - 50;
+    colTitle.center(colTitleX + 20, colTitleY - 30);
 
     // 时间切片名称，代替之前的1,2,3...
     const timeSliceLabels = [
@@ -164,7 +169,7 @@ function drawGrid(draw, csvData, gridSize, offsetX, offsetY) {
     }
 }
 
-function drawCircles(draw, csvData, csvSize, gridSize, offsetX, offsetY) {
+function drawCircles(draw, csvData, csvSize, csvInfluence, gridSize, offsetX, offsetY) {
     const infoBox = createInfoBox();
 
     const minSize = d3.min(csvSize.slice(1).flat().filter(d => d !== 0)); // 获取最小值
@@ -175,12 +180,25 @@ function drawCircles(draw, csvData, csvSize, gridSize, offsetX, offsetY) {
         .domain([minSize, maxSize])
         .range([8, 16]); // 适应更大的网格
 
-    // 定义分层级的颜色方案 - 使用科研友好的色彩
-    // 使用D3的分段颜色比例尺创建层次感
-    const colorScale = d3.scaleSequential()
-        .domain([0, 1])
-        .interpolator(d3.interpolateYlGnBu); // 使用蓝绿黄色系，适合科研图表
+    // 获取所有影响力值，并处理null和负值
+    const influenceValues = csvInfluence.slice(1).flat()
+        .map(value => (value === null || value < 0 || value === -1) ? 0 : value + 1); // 加1避免log(0)
 
+    // 计算影响力的最小和最大值
+    const minInfluence = d3.min(influenceValues.filter(d => d > 0));
+    const maxInfluence = d3.max(influenceValues);
+
+    // 创建log比例尺用于影响力值
+    const logScale = d3.scaleLog()
+        .domain([minInfluence, maxInfluence])
+        .range([0, 1])
+        .clamp(true); // 确保输出值在范围内
+
+    // 定义科研友好的颜色方案，与三角形颜色相协调
+    // 使用D3的颜色插值器，从低影响力到高影响力
+const colorScale = d3.scaleSequential()
+    .domain([0, 1])
+    .interpolator(d3.interpolateRgbBasis(['#a8dee1', '#75b5dc', '#478ecc', '#326db6', '#2c4ca0', '#313772'])); // 从浅蓝到深蓝，与三角形(#8da0bf)颜色协调
     const rows = csvData.length - 1;
     const cols = csvData[0].length;
 
@@ -191,17 +209,7 @@ function drawCircles(draw, csvData, csvSize, gridSize, offsetX, offsetY) {
 
     // 绘制圆圈并添加事件
     for (let row = 1; row <= rows; row++) {
-        // 获取当前行的非零数据范围
-        const rowData = csvSize[row].slice(1).filter(d => d !== 0);
-        const rowMin = d3.min(rowData) === undefined ? 0 : d3.min(rowData);
-        const rowMax = d3.max(rowData) === undefined ? 0 : d3.max(rowData);
-
-        // 为当前行创建颜色比例尺
-        const rowColorScale = d3.scaleLinear()
-            .domain([rowMin, rowMax])
-            .range([0, 1]);
-
-        // 处理多行数据情况
+        // 遍历当前行
         for (let col = 0; col < cols; col++) {
             const currentValue = csvData[row][col];
 
@@ -213,8 +221,12 @@ function drawCircles(draw, csvData, csvSize, gridSize, offsetX, offsetY) {
                 // 为每个值单独绘制
                 values.forEach((value, subIndex) => {
                     const subRow = row + subIndex;  // 在不同行绘制
+                    const influenceValue = csvInfluence[row][col];
+                    // 处理影响力值，确保有效
+                    const safeInfluenceValue = (influenceValue === null || influenceValue < 0) ? 0 : influenceValue + 1;
+
                     const circleInfo = drawSingleCircle(draw, value, col + 1, subRow, csvSize[row][col],
-                        gridSize, offsetX, offsetY, scale, colorScale, rowColorScale,
+                        safeInfluenceValue, gridSize, offsetX, offsetY, scale, colorScale, logScale,
                         infoBox, drawnElements, csvData[row][col-1]);
 
                     if (circleInfo) {
@@ -224,8 +236,12 @@ function drawCircles(draw, csvData, csvSize, gridSize, offsetX, offsetY) {
                 });
             } else {
                 // 处理单个值的情况
+                const influenceValue = csvInfluence[row][col];
+                // 处理影响力值，确保有效
+                const safeInfluenceValue = (influenceValue === null || influenceValue < 0) ? 0 : influenceValue + 1;
+
                 const circleInfo = drawSingleCircle(draw, currentValue, col + 1, row, csvSize[row][col],
-                    gridSize, offsetX, offsetY, scale, colorScale, rowColorScale,
+                    safeInfluenceValue, gridSize, offsetX, offsetY, scale, colorScale, logScale,
                     infoBox, drawnElements, col > 0 ? csvData[row][col-1] : null);
 
                 if (circleInfo) {
@@ -248,8 +264,8 @@ function drawCircles(draw, csvData, csvSize, gridSize, offsetX, offsetY) {
  * 绘制单个圆圈
  * @returns {boolean|Object} 返回false表示终止当前行绘制，返回对象表示圆圈信息
  */
-function drawSingleCircle(draw, value, col, row, sizeValue, gridSize, offsetX, offsetY,
-                          scale, colorScale, rowColorScale, infoBox, drawnElements, previousValue) {
+function drawSingleCircle(draw, value, col, row, sizeValue, influenceValue, gridSize, offsetX, offsetY,
+                          scale, colorScale, logScale, infoBox, drawnElements, previousValue) {
     let timeLabel = [202401, 202402, 202403, 202404, 202405, 202406, 202407, 202408, 202409, 202410];
     if (value === -1) return null;
 
@@ -273,8 +289,19 @@ function drawSingleCircle(draw, value, col, row, sizeValue, gridSize, offsetX, o
 
     let radius = scale(sizeValue + 1);
 
-    // 使用新的颜色比例尺，获取圆的填充颜色
-    let circleColor = colorScale(rowColorScale(sizeValue));
+    // 计算影响力颜色值
+    let colorValue = 0;
+    if (influenceValue > 0) {
+        try {
+            colorValue = logScale(influenceValue);
+        } catch (e) {
+            // 处理可能的错误，例如对数为0或负数
+            colorValue = 0;
+        }
+    }
+
+    // 获取圆的填充颜色
+    let circleColor = colorScale(colorValue);
 
     // 创建唯一ID
     const circleId = `C${row}-${timeSlice}-${value}`;
@@ -291,6 +318,7 @@ function drawSingleCircle(draw, value, col, row, sizeValue, gridSize, offsetX, o
     circle.data('community', value);
     circle.data('time-slice', timeLabel[timeSlice-1]);
     circle.data('size', sizeValue);
+    circle.data('influence', influenceValue);
 
     // 添加悬停效果
     circle.on('mouseover', function() {
@@ -324,6 +352,7 @@ function drawSingleCircle(draw, value, col, row, sizeValue, gridSize, offsetX, o
         // 绘制ascore
         d3.selectAll('#link-layer').remove();
         d3.selectAll('#node-layer').remove();
+        console.log(appState.community, appState.timeSlice);
         drawNodeLink(appState.community, appState.timeSlice, "agg");
     });
 
@@ -336,6 +365,7 @@ function drawSingleCircle(draw, value, col, row, sizeValue, gridSize, offsetX, o
 
         let info_data = comm_data[community];
         info_data['Time Slice'] = timeSlice;
+        info_data['Influence'] = influenceValue > 1 ? (influenceValue - 1).toFixed(2) : 0; // 减去之前加的1并格式化
 
         // 改进的信息框样式
         infoBox.style.display = 'block';
@@ -534,12 +564,12 @@ function drawExtraCircle(draw, row, col, size, label, gridSize, offsetX, offsetY
     const circle = draw
         .circle(radius * 2)  // 直径是半径的两倍
         .center(cx, cy)      // 使用center方法让cx,cy表示圆心
-        .fill('#3d5a80')        // 透明填充
+        .fill('#a3c9a8')        // 透明填充
         .stroke({
-            color: '#3d5a80', // 与主色系匹配的边框颜色
+            color: '#a3c9a8', // 与主色系匹配的边框颜色
             width: 1.2,
-            dasharray: '3,2',
-            opacity: 0.8
+            // dasharray: '3,2',
+            opacity: 1
         })
         .attr('id', circleId)
         .attr('cursor', 'pointer');
@@ -583,8 +613,8 @@ function drawExtraEvents(draw, extraEvents, circleLayer) {
     };
 
     // 绘制所需的额外虚拟圆
-    const extraVirtualCircle = drawExtraCircle(circleLayer, 6, 10, 9, 'C6-10-1', 50, 130, 80);
-    drawExtraCircle(circleLayer, 2, 3, 12, 'C2-3-4', 50, 130, 80);
+    const extraVirtualCircle = drawExtraCircle(circleLayer, 6, 10, 9, 'C6-10-1', 45, 130, 80);
+    drawExtraCircle(circleLayer, 2, 3, 12, 'C2-3-4', 45, 130, 80);
 
     extraEvents.forEach(event => {
         if (event.length !== 3) {
